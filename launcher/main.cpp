@@ -743,6 +743,19 @@ int main(int argc, char** argv) {
         auto args = cane::arguments(argc, argv);
         interactive = args.empty();
         if (!args.empty()) {
+            // Hidden diagnostic/test hook: run the same library discovery used by
+            // Install, without launching the graphical interface.
+            if (args[0] == "--scan-isos" && args.size() == 1) {
+                ui::IsoScanner scanner;
+                const auto library = backend.isoLibrary();
+                scanner.scan(library.empty() ? std::vector<cane::fs::path>{}
+                                             : std::vector<cane::fs::path>{library},
+                             !library.empty());
+                while (scanner.scanning()) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                for (const auto& c : scanner.results())
+                    std::cout << cane::game(*c.identity.game).key << " " << cane::utf8(c.path) << "\n";
+                return 0;
+            }
             if (args[0] == "--install" && args.size() == 2) {
                 // The disc decides the game (Sly 1 for anything unrecognised,
                 // which the extractor then rejects).
