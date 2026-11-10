@@ -5,7 +5,7 @@
 #include <mutex>
 
 #include "install.h"
-#include "process.h"
+#include "cane_process.h"
 #include "regions.h"
 namespace cane {
 // One installed region of a game (regions.h). Storage: the first region installed keeps the game's original folder
