@@ -7,7 +7,7 @@
 // The runtime reads extraction_manifest.json (Sly1-Release/content.cpp) to learn the region and languages.
 
 #include "../platform/install.h"
-#include "../platform/process.h"
+#include "../platform/cane_process.h"
 
 #include <algorithm>
 #include <atomic>
