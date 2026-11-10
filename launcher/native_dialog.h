@@ -26,7 +26,7 @@
 #include <vector>
 
 #include "platform.h"
-#include "process.h"
+#include "cane_process.h"
 
 #ifdef _WIN32
 #include <windows.h>
