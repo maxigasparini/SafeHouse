@@ -58,6 +58,12 @@ public:
         return m_installed;
     }
     void invalidate() { m_nextCheck = 0; }
+    void scanConfigured() {
+        const auto library = m_backend.isoLibrary();
+        m_scannedLibrary = utf8(library);
+        m_scanner.scan(library.empty() ? std::vector<fs::path>{} : std::vector<fs::path>{library});
+        m_scanned = true;
+    }
     // The page opens for a game: start looking for disc images, and pick the
     // remembered or best matching one.
     // addRegion: "Install another region" (Settings): the page offers a disc of a region not installed yet.
@@ -72,10 +78,9 @@ public:
         }
         m_dismissed = m_job.message;
         invalidate();
-        if (!m_scanned) {
-            m_scanner.scan();
-            m_scanned = true;
-        }
+        // Refresh when the library folder changed since the last visit.
+        const std::string library = utf8(m_backend.isoLibrary());
+        if (!m_scanned || m_scannedLibrary != library) scanConfigured();
         if (!iso.empty()) m_iso = std::move(iso);
         else if (m_fixture) m_iso = m_fixtureInstalled ? std::string{} : bestCandidate();
         else {
@@ -465,7 +470,7 @@ private:
         ImGui::EndGroup();
         // Pad users get the path entry instead of the mouse-only file dialog.
         sameRow(row, w - browseW - rescanW - px(8));
-        if (iconButton("Search again", Icon::Refresh, rescanW) && !m_fixture) m_scanner.scan();
+        if (iconButton("Search again", Icon::Refresh, rescanW) && !m_fixture) scanConfigured();
         ImGui::SameLine(0, px(8));
         ImGui::BeginDisabled(m_native.running());  // the system's file dialog is open in its own window
         if (button(browseLabel, Tone::Secondary, { browseW, 0 }, padUser() ? Icon::Search : Icon::Folder)) choose(false);
@@ -697,6 +702,7 @@ private:
     std::string m_note;
     std::string m_iso, m_dismissed, m_lastLabel;
     bool m_scanned = false, m_installAfterSelection = false, m_showLog = false, m_fixture = false, m_fixtureInstalled = false;
+    std::string m_scannedLibrary;
     bool m_installed = false, m_pathOpen = false, m_pathFocus = false;
     char m_pathBuf[1024] = {};
     filedialog::Async m_native;
