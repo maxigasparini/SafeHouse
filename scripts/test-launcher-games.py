@@ -125,32 +125,6 @@ def main():
         env = dict(os.environ)
         data = portable / "data"
         subprocess.run([str(copied), "--help"], env=env, check=True, capture_output=True, timeout=30)
-
-        # Custom image library: nested Sly disc is discovered, unrelated ISO
-        # files are ignored, and the scan does not fall back to Downloads.
-        library = work / "ISO library"
-        nested = library / "PS2" / "Games" / "USA"
-        nested.mkdir(parents=True)
-        recognized = nested / "sly1.iso"
-        unrecognized = library / "unrelated-ps2.iso"
-        unrelated = library / "other-platform.iso"
-        for target, source in ((recognized, images["SCUS_971.98"]),
-                               (unrecognized, images["SLUS_200.00"])):
-            shutil.copy2(source, target)
-            with target.open("r+b") as image:
-                image.truncate(64 * 1024 * 1024 + 1)
-        with unrelated.open("wb") as image:
-            image.write(b"not a PlayStation 2 ISO")
-            image.truncate(64 * 1024 * 1024 + 1)
-        config = data / "config/launcher.json"
-        config.parent.mkdir(parents=True, exist_ok=True)
-        config.write_text(json.dumps({"iso_library_dir": str(library)}))
-        result = run([copied, "--scan-isos"], env=env, timeout=90)
-        assert result.returncode == 0, result
-        found = result.stdout.decode().splitlines()
-        assert found == ["sly1 " + str(recognized)], found
-        config.unlink()
-
         sly2 = data / "installations/sly2"
         sly2.mkdir(parents=True)
         # (asset version 3: the converted files with PC audio)

@@ -48,14 +48,11 @@ Saves, settings, and logs remain in the profile locations listed above.
 
 Yes. Open **Settings > Games > Disc images folder** and select the folder holding your
 legally obtained `.iso` or `.chd` files. When you open a game's installation page,
-SafeHouse automatically searches **only that directory** and its subfolders (up to six levels
-deep), and lists recognized Sly 1, Sly 2 and Sly 3 discs. Other game images are
-ignored. The page shows how many images were checked. Without a custom folder,
-the launcher scans the usual locations (up to two levels deep). The search is
-bounded to 200 results and 20,000 directory entries. Searching starts again
-each time the installation page opens. Finding a disc does **not** install it:
-you choose which one to install. **Clear disc images folder** restores the
-usual-location search.
+SafeHouse automatically searches that directory and its subfolders (up to two levels deep),
+along with the usual locations, and recognizes supported games and regions. The search
+is bounded to 200 disc images and 20,000 entries. Finding a disc does **not** install
+it automatically; you choose which one to install. **Clear disc images folder** stops
+scanning the custom folder.
 
 
 ## How do I update?

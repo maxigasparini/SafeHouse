@@ -61,7 +61,7 @@ public:
     void scanConfigured() {
         const auto library = m_backend.isoLibrary();
         m_scannedLibrary = utf8(library);
-        m_scanner.scan(library.empty() ? std::vector<fs::path>{} : std::vector<fs::path>{library}, !library.empty());
+        m_scanner.scan(library.empty() ? std::vector<fs::path>{} : std::vector<fs::path>{library});
         m_scanned = true;
     }
     // The page opens for a game: start looking for disc images, and pick the
@@ -78,16 +78,13 @@ public:
         }
         m_dismissed = m_job.message;
         invalidate();
-        // Always refresh when opening Install: files can be added or removed
-        // from the selected directory without changing Settings.
-        const bool customLibrary = !m_backend.isoLibrary().empty();
-        if (!m_fixture) scanConfigured();
+        // Refresh when the library folder changed since the last visit.
+        const std::string library = utf8(m_backend.isoLibrary());
+        if (!m_scanned || m_scannedLibrary != library) scanConfigured();
         if (!iso.empty()) m_iso = std::move(iso);
         else if (m_fixture) m_iso = m_fixtureInstalled ? std::string{} : bestCandidate();
         else {
-            // A previously used image in Downloads must not override a newly
-            // configured library. Explicit ISO navigation still takes priority.
-            m_iso = addRegion || customLibrary ? std::string{} : m_backend.rememberedIso(game);
+            m_iso = addRegion ? std::string{} : m_backend.rememberedIso(game);
             if (m_iso.empty()) m_iso = bestCandidate();
         }
         m_choseFirst = true;
@@ -250,7 +247,7 @@ private:
             m_pathOpen = false;
             if (m_installAfterSelection && !m_fixture) startInstall(m_iso);
         } else if (fs::is_directory(chosen, ec)) {
-            if (!m_fixture) m_scanner.scan({ chosen }, true);
+            if (!m_fixture) m_scanner.scan({ chosen });
             m_pathOpen = false;
         } else {
             m_pathNote = "Nothing found at that path.";
@@ -463,16 +460,15 @@ private:
         heading("Disc image");
         tighten(8);
         ImGui::PushClipRect(ImGui::GetCursorScreenPos(), { row.x + w - browseW - rescanW - px(20), row.y + px(80) }, true);
-        const fs::path library = m_backend.isoLibrary();
-        std::error_code folderError;
-        const bool missingLibrary = !library.empty() && !fs::is_directory(library, folderError);
-        const std::string source = library.empty() ? std::string("usual folders") : utf8(library);
-        const std::string where = missingLibrary ? "Disc images folder unavailable: " + source
-            : m_scanner.scanning() ? "Searching for Sly discs in " + source
-            : "Found " + std::to_string(m_scanner.results().size()) + " Sly disc(s) (checked " +
-              std::to_string(m_scanner.checkedImages()) + " images) in " + source +
-              (m_scanner.limited() ? " · search limit reached" : "");
-        text(where.c_str(), fonts().caption, missingLibrary ? color::warning : color::muted);
+#ifdef _WIN32
+        const char* where = "Found in your Downloads, Documents and Desktop folders";
+#else
+        const char* where = "Found in your Emulation, Games, Downloads, Desktop and Documents folders and on removable drives";
+#endif
+        const auto library = m_backend.isoLibrary();
+        const std::string source = library.empty() ? std::string(where)
+                                                   : "Default folders + " + utf8(library);
+        text(m_scanner.scanning() ? "Searching your folders…" : source.c_str(), fonts().caption, color::muted);
         ImGui::PopClipRect();
         ImGui::EndGroup();
         // Pad users get the path entry instead of the mouse-only file dialog.
@@ -530,15 +526,13 @@ private:
             const ImVec2 o = ImGui::GetCursorScreenPos();
             auto* dl = ImGui::GetWindowDrawList();
             const ImVec2 c{ o.x + area.x * 0.5f, o.y + area.y * 0.42f };
-            const char* label = m_scanner.scanning() ? "Looking for Sly disc images…"
-                : "No recognized Sly 1–3 disc images found.";
+            const char* label = m_scanner.scanning() ? "Looking for disc images…" : "No disc images found in your usual folders.";
             if (m_scanner.scanning()) spinner(dl, { c.x, c.y - px(26) }, px(14));
             else drawIcon(dl, Icon::Disc, { c.x, c.y - px(26) }, px(34), ink(color::muted));
             const auto t = measure(fonts().body, label);
             dl->AddText(fonts().body, fonts().body->FontSize, { std::round(c.x - t.x * 0.5f), c.y }, ink(color::text2), label);
-            const char* sub = missingLibrary ? "Check the library path in Settings > Games."
-                : padUser() ? "Enter the folder that holds your disc image to search it."
-                : "Check Settings > Games or use Browse to choose an .iso or .chd file.";
+            const char* sub = padUser() ? "Enter the folder that holds your disc image to search it."
+                                        : "Use Browse… or drop an .iso or .chd file onto this window.";
             const auto t2 = measure(fonts().caption, sub);
             dl->AddText(fonts().caption, fonts().caption->FontSize, { std::round(c.x - t2.x * 0.5f), c.y + px(28) }, ink(color::muted), sub);
         }
