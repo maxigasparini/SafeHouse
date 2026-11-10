@@ -108,6 +108,16 @@ struct LauncherBackend {
                 // {"sly1": "europe"}: the region last chosen / played; {"sly1": {"europe": ISO}}: the disc images.
                 for (auto key : {"regions", "region_isos"})
                     if (config.contains(key) && !config.at(key).is_object()) config.erase(key);
+                if (config.contains("install_roots")) {
+                    if (!config["install_roots"].is_array()) config.erase("install_roots");
+                    else {
+                        json valid = json::array();
+                        for (const auto& root : config["install_roots"])
+                            if (root.is_string() && path(root.get<std::string>()).is_absolute())
+                                valid.push_back(root);
+                        config["install_roots"] = std::move(valid);
+                    }
+                }
             } catch (...) {
                 auto backup = file;
                 backup += ".broken";
@@ -182,6 +192,15 @@ struct LauncherBackend {
             fs::remove(probe);
         }
         const auto oldConfig = config;
+        // Previously selected custom roots remain discoverable even after switching
+        // to another drive or resetting to the default. Never move existing files.
+        if (!customInstallRoot.empty() && customInstallRoot != next) {
+            if (!config.contains("install_roots") || !config["install_roots"].is_array())
+                config["install_roots"] = json::array();
+            const auto previous = utf8(customInstallRoot);
+            if (std::find(config["install_roots"].begin(), config["install_roots"].end(), previous) == config["install_roots"].end())
+                config["install_roots"].push_back(previous);
+        }
         if (next.empty() || next == locations.data.parent_path()) config.erase("install_dir");
         else config["install_dir"] = utf8(next);
         try { saveConfig(); }
@@ -264,6 +283,15 @@ struct LauncherBackend {
             }
         };
         collect(preferred);
+        if (config.contains("install_roots") && config["install_roots"].is_array()) {
+            for (const auto& stored : config["install_roots"]) {
+                if (!stored.is_string()) continue;
+                const auto root = path(stored.get<std::string>());
+                if (!root.is_absolute()) continue;
+                const auto previous = root / cane::game(game).key;
+                if (previous != preferred && previous != legacy) collect(previous);
+            }
+        }
         if (preferred != legacy) collect(legacy);
         if (!out.empty() && out[0].region.empty()) out[0].release = "Unknown region";
         return out;
