@@ -1,10 +1,9 @@
 #pragma once
-// Background search for PlayStation 2 disc images (.iso, .chd) in the usual places, so a pad user
-// can pick one without a file dialog. Bounded: each root is searched at most
-// two folders deep, symlinked folders are not followed, and the search stops
-// after 200 images or 20000 folder entries. Emulator ROM folders (EmuDeck,
-// RetroDECK) are searched first, in the home folder and on every removable
-// drive, because they sit deeper than the drive-root search reaches.
+// Background search for recognizable Sly 1, 2 and 3 disc images (.iso, .chd).
+// A configured library is searched exclusively, up to six folders deep; the
+// automatic fallback searches usual folders up to two deep. Symlinks are not
+// followed and the search is bounded to 200 results / 20000 entries.
+// Unrelated or unreadable images are never shown in the automatic list.
 #include <algorithm>
 #include <atomic>
 #include <cctype>
@@ -30,16 +29,25 @@ struct IsoCandidate {
 class IsoScanner {
 public:
     ~IsoScanner() { stopWorker(); }
-    // Starts (or restarts) a scan in the background. extra folders (typed by
-    // the user) are searched before the usual places.
-    void scan(std::vector<std::filesystem::path> extra = {}) {
+    // onlyExtra keeps unrelated Downloads/Desktop images out of a configured
+    // library. Explicit folder browsing uses the same behavior.
+    void scan(std::vector<std::filesystem::path> extra = {}, bool onlyExtra = false) {
         stopWorker();
+        {
+            std::lock_guard lock(m_mutex);
+            m_results.clear();  // never display stale results during a new scan
+        }
+        m_checkedImages = 0;
+        m_limited = false;
         m_extra = std::move(extra);
+        m_onlyExtra = onlyExtra;
         m_stop = false;
         m_scanning = true;
         m_worker = std::thread([this] { run(); });
     }
     bool scanning() const { return m_scanning; }
+    size_t checkedImages() const { return m_checkedImages; }
+    bool limited() const { return m_limited; }
     std::vector<IsoCandidate> results() {
         std::lock_guard lock(m_mutex);
         return m_results;
@@ -111,24 +119,35 @@ private:
         const auto& name = entry.filename().native();
         return name.empty() || name.front() == '.';
     }
-    void visit(const std::filesystem::path& folder, int depth, std::vector<IsoCandidate>& found, size_t& entries) {
+    void visit(const std::filesystem::path& folder, int depth, int maxDepth, std::vector<IsoCandidate>& found, size_t& entries) {
         namespace fs = std::filesystem;
         std::error_code ec;
         fs::directory_iterator it(folder, fs::directory_options::skip_permission_denied, ec), end;
         for (; !ec && it != end && !m_stop; it.increment(ec)) {
-            if (++entries > kMaxEntries || found.size() >= kMaxResults) return;
+            if (++entries > kMaxEntries || found.size() >= kMaxResults) {
+                m_limited = true;
+                return;
+            }
             std::error_code e;
             const auto status = it->symlink_status(e);
             if (e) continue;
             if (fs::is_directory(status)) {
-                if (depth < 2 && !hidden(it->path())) visit(it->path(), depth + 1, found, entries);
+                if (depth < maxDepth && !hidden(it->path()))
+                    visit(it->path(), depth + 1, maxDepth, found, entries);
                 continue;
             }
             if (!isIso(it->path())) continue;
             const auto size = it->file_size(e);
             if (e || size < kMinSize) continue;
+            ++m_checkedImages;
+            const auto identity = identifyDiscImage(it->path());
+            // The automatic list is for Sly discs, not arbitrary ISO9660 files,
+            // CD/DVD images or other PS2 titles.
+            if (!identity.game || !installable(*identity.game) ||
+                (identity.kind != DiscIdentity::Kind::Supported &&
+                 identity.kind != DiscIdentity::Kind::OtherRegion)) continue;
             if (std::any_of(found.begin(), found.end(), [&](const auto& c) { return fs::equivalent(c.path, it->path(), e); })) continue;
-            found.push_back({ it->path(), size, it->last_write_time(e), identifyDiscImage(it->path()) });
+            found.push_back({ it->path(), size, it->last_write_time(e), identity });
         }
     }
     void run() {
@@ -137,12 +156,15 @@ private:
         // An exception must never escape the worker thread (std::terminate);
         // whatever was found before the failure is still shown.
         try {
-            auto all = m_extra;
-            for (auto& root : roots()) all.push_back(std::move(root));
-            for (const auto& root : all) {
-                if (m_stop) break;
-                visit(root, 0, found, entries);
+            for (const auto& root : m_extra) {
+                if (m_stop || m_limited) break;
+                visit(root, 0, 6, found, entries);
             }
+            if (!m_onlyExtra)
+                for (const auto& root : roots()) {
+                    if (m_stop || m_limited) break;
+                    visit(root, 0, 2, found, entries);
+                }
         } catch (...) {
         }
         std::sort(found.begin(), found.end(), [](const auto& a, const auto& b) { return a.modified > b.modified; });
@@ -156,6 +178,8 @@ private:
     std::mutex m_mutex;
     std::vector<IsoCandidate> m_results;
     std::vector<std::filesystem::path> m_extra;
-    std::atomic<bool> m_stop{ false }, m_scanning{ false };
+    bool m_onlyExtra = false;
+    std::atomic<size_t> m_checkedImages{ 0 };
+    std::atomic<bool> m_stop{ false }, m_scanning{ false }, m_limited{ false };
 };
 } // namespace cane::ui
