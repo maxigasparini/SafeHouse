@@ -523,6 +523,12 @@ if(WIN32)
   configure_file(cmake/windows-version.rc.in "${rc}" @ONLY)
   set_source_files_properties("${rc}" PROPERTIES OBJECT_DEPENDS "${CANE_RC_MANIFEST};${ARGN}")
   target_sources(${target} PRIVATE "${rc}")
+  # The .rc already embeds resource 1/RT_MANIFEST (UTF-8). MSVC also
+  # generates a default manifest unless disabled, causing CVT1100/LNK1123.
+  # Keep the explicit .rc manifest for both MSVC and LLVM/MinGW builds.
+  if(MSVC)
+   target_link_options(${target} PRIVATE "/MANIFEST:NO")
+  endif()
  endfunction()
  set(cane_assets "${CMAKE_CURRENT_SOURCE_DIR}/launcher/assets")
  if(TARGET cane-launcher)
