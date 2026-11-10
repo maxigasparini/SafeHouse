@@ -220,6 +220,17 @@ public:
         m_focusRail = false;
     }
     void drawDialogs() {
+        if (auto r = m_locationDialog.poll()) {
+            if (r->status == filedialog::Status::Chosen) applyLocation(r->path);
+            else if (r->status == filedialog::Status::Unavailable) openLocationPicker();
+            else if (r->status == filedialog::Status::Failed) m_locationError = r->error;
+        }
+        if (ImGuiFileDialog::Instance()->Display("game-locations", ImGuiWindowFlags_NoCollapse,
+                                                 { px(650), px(400) }, { px(1100), px(760) })) {
+            if (ImGuiFileDialog::Instance()->IsOk())
+                applyLocation(ImGuiFileDialog::Instance()->GetCurrentPath());
+            ImGuiFileDialog::Instance()->Close();
+        }
         if (auto r = m_ps3Dialog.poll()) {  // the PS3 HD import's source (native_dialog.h)
             if (r->status == filedialog::Status::Chosen) startPs3Import(m_ps3Game, r->path);
             else if (r->status == filedialog::Status::Unavailable) openPs3Picker(m_ps3PickFolder);
@@ -1059,6 +1070,38 @@ private:
     // Each installable game: its installed regions (choosing one makes it the one Play starts) and "Install another
     // region", with the regions it installs from and the space each needs.
     void gamesRows(bool gameRunning) {
+        section("Game folders");
+        ImGui::BeginDisabled(gameRunning || m_job.busy || m_fixture || m_locationDialog.running());
+        const auto installFolder = utf8(m_backend.installRoot());
+        if (linkRow("Game installation folder", "Browse...", installFolder.c_str(), Icon::Folder))
+            chooseLocation(true);
+        describe("Folder for future game installations. Existing installations stay where they are and remain playable.");
+        if (m_backend.config.contains("install_dir")) {
+            if (button("Use default install folder", Tone::Quiet, {0, 0})) {
+                try { m_backend.setInstallRoot({}); m_nextRegions = 0; m_locationError.clear(); }
+                catch (const std::exception& e) { m_locationError = e.what(); }
+            }
+        }
+        gap(10);
+        const auto library = m_backend.isoLibrary();
+        const auto libraryLabel = library.empty() ? std::string("Usual folders") : utf8(library);
+        if (linkRow("Disc images folder", "Browse...", libraryLabel.c_str(), Icon::Folder))
+            chooseLocation(false);
+        describe("Scans this folder and subfolders for supported .iso and .chd discs when opening Install.");
+        if (!library.empty()) {
+            if (button("Clear disc images folder", Tone::Quiet, {0, 0})) {
+                try { m_backend.setIsoLibrary({}); m_locationError.clear(); }
+                catch (const std::exception& e) { m_locationError = e.what(); }
+            }
+            std::error_code ec;
+            if (!fs::is_directory(library, ec))
+                caption("Disc images folder is unavailable. Select a valid folder to scan it.", color::warning);
+        }
+        ImGui::EndDisabled();
+        if (!m_locationError.empty()) {
+            if (banner("game-locations-error", m_locationError, BannerTone::Warning)) m_locationError.clear();
+        }
+        gap(12);
         if (!m_fixture || m_regionsFixture) {
             const double now = ImGui::GetTime();
             if (!m_regionsFixture && now >= m_nextRegions) {
@@ -1115,6 +1158,31 @@ private:
     // The PS3 HD textures of a game (backend.h importPs3Hd): on / off, import from The Sly Collection (a disc image,
     // a .zip of one, or the extracted disc), with the job's progress and Cancel, and Remove. The cutscenes stay the
     // PS2's (the PS3 movies are not sharper), which a note says.
+    void chooseLocation(bool install) {
+        if (m_locationDialog.running()) return;
+        m_pickInstallLocation = install;
+        const auto selected = install ? m_backend.installRoot() : m_backend.isoLibrary();
+        const auto initial = filedialog::startFolder({utf8(selected)});
+        const char* title = install ? "Choose game installation folder" : "Choose disc images folder";
+        if (!m_locationDialog.start(filedialog::Kind::PickFolder, title, initial))
+            openLocationPicker();
+    }
+    void openLocationPicker() {
+        const auto selected = m_pickInstallLocation ? m_backend.installRoot() : m_backend.isoLibrary();
+        ImGuiFileDialog::Instance()->OpenDialog("game-locations",
+            m_pickInstallLocation ? "Choose game installation folder" : "Choose disc images folder",
+            nullptr, utf8(filedialog::startFolder({utf8(selected)})), "", 1, nullptr,
+            ImGuiFileDialogFlags_Modal);
+    }
+    void applyLocation(const std::string& folder) {
+        try {
+            if (m_pickInstallLocation) { m_backend.setInstallRoot(path(folder)); m_nextRegions = 0; }
+            else m_backend.setIsoLibrary(path(folder));
+            m_locationError.clear();
+        } catch (const std::exception& e) {
+            m_locationError = e.what();
+        }
+    }
     void ps3HdRows(GameId g, bool gameRunning) {
         const size_t gi = static_cast<size_t>(g);
         const auto& pack = m_ps3Packs[gi];
@@ -1330,6 +1398,9 @@ private:
     double m_nextRegions = 0;
     bool m_regionsFixture = false;
     std::array<LauncherBackend::Ps3HdPack, kGameCount> m_ps3Packs{};
+    filedialog::Async m_locationDialog;
+    bool m_pickInstallLocation = true;
+    std::string m_locationError;
     filedialog::Async m_ps3Dialog;
     GameId m_ps3Game = GameId::Sly2;
     bool m_ps3PickFolder = false;
