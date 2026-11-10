@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdio>
 #include <ctime>
+#include <fstream>
 #include <mutex>
 
 #include "install.h"
@@ -71,6 +72,7 @@ inline std::string executableName(const std::string& name) {
 }
 struct LauncherBackend {
     UserPaths locations = userPaths();
+    fs::path customInstallRoot;
     fs::path tools = executableDirectory();
     json config = json::object();
     LauncherBackend() {
@@ -96,7 +98,7 @@ struct LauncherBackend {
                 if (config.contains("logging") && !config.at("logging").is_boolean())
                     config.erase("logging");
                 // Launcher preferences fall back to their defaults one by one.
-                for (auto key : {"sly2_iso_path", "sly3_iso_path", "last_game", "sly2_runtime", "browse_dir", "skipped_update"})
+                for (auto key : {"sly2_iso_path", "sly3_iso_path", "last_game", "sly2_runtime", "browse_dir", "skipped_update", "install_dir", "iso_library_dir"})
                     if (config.contains(key) && !config.at(key).is_string()) config.erase(key);
                 // "sly2_wide_backgrounds" (Sly 2's "Widescreen backgrounds", removed 2026-11-05) is ignored and kept as it is.
                 for (auto key : {"show_logs", "start_fullscreen", "sly2_native_preview", "sly3_notice_hidden", "check_updates"})
@@ -113,6 +115,12 @@ struct LauncherBackend {
                 fs::rename(file, backup, ec);
                 config = json::object();
             }
+        }
+        // Only game assets use the optional location. Saves, settings, logs and runtime builds stay
+        // in their existing profile, including portable installations.
+        if (config.contains("install_dir")) {
+            const auto dir = path(config.at("install_dir").get<std::string>());
+            if (dir.is_absolute() && dir != dir.root_path()) customInstallRoot = dir.lexically_normal();
         }
         if (config.contains("runtime_dir"))
             tools = locations.portable ? runtimeStorage(locations) / "runtime" / "bin"
@@ -151,6 +159,52 @@ struct LauncherBackend {
         }
     }
     void saveConfig() { writeJson(locations.config / "launcher.json", config); }
+    // Empty selects the original OS/portable default. Existing game installations
+    // remain where they are and are still discovered, regardless of the selected root.
+    fs::path installRoot() const {
+        return customInstallRoot.empty() ? locations.data.parent_path() : customInstallRoot;
+    }
+    void setInstallRoot(const fs::path& requested) {
+        fs::path next;
+        if (!requested.empty()) {
+            next = fs::absolute(requested).lexically_normal();
+            if (next == next.root_path())
+                throw std::runtime_error("Choose a folder rather than the root of a drive");
+            fs::create_directories(next);
+            if (!fs::is_directory(next)) throw std::runtime_error("Installation path is not a folder");
+            // Test actual write access rather than trusting filesystem permission bits.
+            const auto probe = next / ".safehouse-write-test";
+            if (fs::exists(probe)) throw std::runtime_error("Cannot test write access to installation folder");
+            {
+                std::ofstream out(probe, std::ios::binary | std::ios::trunc);
+                if (!out || !(out << "safehouse")) throw std::runtime_error("Installation folder is not writable");
+            }
+            fs::remove(probe);
+        }
+        const auto oldConfig = config;
+        if (next.empty() || next == locations.data.parent_path()) config.erase("install_dir");
+        else config["install_dir"] = utf8(next);
+        try { saveConfig(); }
+        catch (...) { config = oldConfig; throw; }
+        customInstallRoot = config.contains("install_dir") ? next : fs::path{};
+    }
+    fs::path isoLibrary() const {
+        if (!config.contains("iso_library_dir") || !config.at("iso_library_dir").is_string()) return {};
+        const auto dir = path(config.at("iso_library_dir").get<std::string>());
+        return dir.is_absolute() ? dir : fs::path{};
+    }
+    void setIsoLibrary(const fs::path& requested) {
+        fs::path next;
+        if (!requested.empty()) {
+            next = fs::absolute(requested).lexically_normal();
+            if (!fs::is_directory(next)) throw std::runtime_error("Disc images folder does not exist");
+        }
+        const auto oldConfig = config;
+        if (next.empty()) config.erase("iso_library_dir");
+        else config["iso_library_dir"] = utf8(next);
+        try { saveConfig(); }
+        catch (...) { config = oldConfig; throw; }
+    }
     // "Don't show again" on the Sly 3 early-development notice before Play (launcher.json "sly3_notice_hidden").
     bool sly3NoticeHidden() const { return config.value("sly3_notice_hidden", false); }
     void hideSly3Notice() {
@@ -180,26 +234,37 @@ struct LauncherBackend {
     mutable std::mutex m_cacheMutex;
     mutable std::vector<CacheEntry> m_cache;
     // The game's original folder (installations/<game>): its first installed region.
-    fs::path baseDir(GameId game) const { return gameDataDirectory(locations, game); }
+    fs::path baseDir(GameId game) const { return installRoot() / cane::game(game).key; }
+    fs::path legacyBaseDir(GameId game) const { return gameDataDirectory(locations, game); }
     // Every installed region of a game: the original folder, then installations/<game>-<region> in the order of
     // knownRegions(). A folder whose installation.json is missing is not an installation; one that cannot be read
     // still is (it needs repair). Staging / previous folders and locks use a '.' and are never listed.
     std::vector<Installation> installations(GameId game) const {
         std::vector<Installation> out;
         if (!installable(game)) return out;
-        std::error_code ec;
-        const fs::path base = baseDir(game);
-        if (fs::is_regular_file(base / "installation.json", ec)) out.push_back(cachedInstallation(base, game));
-        const std::string prefix = std::string(cane::game(game).key) + "-";
-        std::vector<Installation> extra;
-        for (const auto& r : knownRegions(game)) {
-            const fs::path dir = base.parent_path() / (prefix + r.key);
-            if (!fs::is_regular_file(dir / "installation.json", ec)) continue;
-            Installation in = cachedInstallation(dir, game);
-            if (in.region.empty()) in.region = r.key, in.release = r.name;
-            // (a region already in the original folder wins; the duplicate is not listed)
-            if (std::none_of(out.begin(), out.end(), [&](const Installation& o) { return o.region == in.region; })) out.push_back(in);
-        }
+        // Prefer the configured folder, but keep reading the original default
+        // so switching drives never hides existing games or saves.
+        const fs::path preferred = baseDir(game);
+        const fs::path legacy = legacyBaseDir(game);
+        auto collect = [&](const fs::path& base) {
+            std::error_code ec;
+            if (fs::is_regular_file(base / "installation.json", ec)) {
+                auto in = cachedInstallation(base, game);
+                if (std::none_of(out.begin(), out.end(), [&](const Installation& o) { return o.region == in.region; }))
+                    out.push_back(std::move(in));
+            }
+            const std::string prefix = std::string(cane::game(game).key) + "-";
+            for (const auto& r : knownRegions(game)) {
+                const auto dir = base.parent_path() / (prefix + r.key);
+                if (!fs::is_regular_file(dir / "installation.json", ec)) continue;
+                Installation in = cachedInstallation(dir, game);
+                if (in.region.empty()) in.region = r.key, in.release = r.name;
+                if (std::none_of(out.begin(), out.end(), [&](const Installation& o) { return o.region == in.region; }))
+                    out.push_back(std::move(in));
+            }
+        };
+        collect(preferred);
+        if (preferred != legacy) collect(legacy);
         if (!out.empty() && out[0].region.empty()) out[0].release = "Unknown region";
         return out;
     }
