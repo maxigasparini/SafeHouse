@@ -35,6 +35,26 @@ The folders keep the project's old name (ProjectCane) on purpose, so games, save
 carry over. The game page's **Open save folder** and **Open game folder** buttons open them. Re-extracting or
 uninstalling a game never touches your saves.
 
+### Can I choose where games are installed?
+
+Yes. Open **Settings > Games > Game installation folder** and choose the destination.
+New installations go to that folder in subdirectories such as `sly1` and `sly2`, with
+additional disc regions installed beside them. Existing installations remain in their original
+folders and are still recognized by the launcher; changing the setting never moves or deletes
+game files. The **Use default install folder** button restores the standard destination.
+Saves, settings, and logs remain in the profile locations listed above.
+
+### Can SafeHouse find disc images in my own games folder?
+
+Yes. Open **Settings > Games > Disc images folder** and select the folder holding your
+legally obtained `.iso` or `.chd` files. When you open a game's installation page,
+SafeHouse automatically searches that directory and its subfolders (up to two levels deep),
+along with the usual locations, and recognizes supported games and regions. The search
+is bounded to 200 disc images and 20,000 entries. Finding a disc does **not** install
+it automatically; you choose which one to install. **Clear disc images folder** stops
+scanning the custom folder.
+
+
 ## How do I update?
 
 The launcher updates itself. At startup it checks GitHub for the latest release; when there is a newer one it shows
