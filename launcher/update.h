@@ -30,7 +30,7 @@
 #include <vector>
 
 #include "install.h"
-#include "process.h"
+#include "cane_process.h"
 #include "safehouse_version.h"
 #ifdef _WIN32
 #include <winhttp.h>
