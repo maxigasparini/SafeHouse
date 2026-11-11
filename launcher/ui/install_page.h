@@ -708,7 +708,8 @@ private:
         text(padUser() ? "Not listed? Enter the folder that holds it." : "You can also drop an .iso or .chd file onto this window.", fonts().caption,
              color::muted);
         ImGui::SetCursorPos({ ImGui::GetCursorPosX() + w - ctaW, y });
-        ImGui::BeginDisabled(sessionActive || m_job.busy || !mismatch.empty());
+        ImGui::BeginDisabled(sessionActive || m_job.busy || !mismatch.empty() ||
+                             m_installFolderDialog.running() || m_installFolderEntryOpen);
         std::string ctaLabel = ready && !m_addRegion ? "Reinstall" : "Install";
         bool ctaQuiet = ready && !m_addRegion;
         if (check && check->ok() && check->region) {
