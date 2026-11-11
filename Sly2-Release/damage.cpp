@@ -47,6 +47,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#ifdef _MSC_VER
+#include <intrin.h>
+#endif
 #include <set>
 #include <string>
 #include <vector>
@@ -689,8 +692,14 @@ void SetSlyPartGravity(ALO* palo, uint32_t ib, const glm::vec3& v)
 // orig: 0x001A0B40
 void SetDamageState(ACTOR* pa, int n)
 {
-    if (std::getenv("SLY2N_DMGSTATE"))  // (debug: the damage reaction states with the caller)
-        std::printf("damage state %d: %d -> %d t %.3f (from %p)\n", pa->palo ? pa->palo->oid : -1, pa->nSubDF4, n, g_clock.t, __builtin_return_address(0));
+    if (std::getenv("SLY2N_DMGSTATE")) {  // (debug: damage state with caller address)
+#ifdef _MSC_VER
+        void* caller = _ReturnAddress();
+#else
+        void* caller = __builtin_return_address(0);
+#endif
+        std::printf("damage state %d: %d -> %d t %.3f (from %p)\n", pa->palo ? pa->palo->oid : -1, pa->nSubDF4, n, g_clock.t, caller);
+    }
     DAMAGE& d = Dmg(pa);
     ALO* palo = pa->palo;
     const int old = pa->nSubDF4;

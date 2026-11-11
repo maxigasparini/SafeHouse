@@ -2058,7 +2058,20 @@ int RunGame(const GAMEOPTS& go)
             const double tEnd = now();
             s_aMs[0] += t1 - t0, s_aMs[1] += t2 - t1, s_aMs[2] += msScene - s_aMs[3], s_aMs[3] = msScene;
             static double s_msGpu0 = 0, s_msHud0 = 0;
-            auto msCpu = [] { timespec ts{}; clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts); return ts.tv_sec * 1e3 + ts.tv_nsec / 1e6; };
+            auto msCpu = [] {
+#ifdef _WIN32
+                FILETIME created{}, exited{}, kernel{}, user{};
+                if (!GetThreadTimes(GetCurrentThread(), &created, &exited, &kernel, &user)) return 0.0;
+                ULARGE_INTEGER k{}, u{};
+                k.LowPart = kernel.dwLowDateTime; k.HighPart = kernel.dwHighDateTime;
+                u.LowPart = user.dwLowDateTime; u.HighPart = user.dwHighDateTime;
+                return static_cast<double>(k.QuadPart + u.QuadPart) / 10000.0;
+#else
+                timespec ts{};
+                clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+                return ts.tv_sec * 1e3 + ts.tv_nsec / 1e6;
+#endif
+            };
             static double s_msCpu0 = msCpu();
             ++s_c;
             if (tEnd - s_t0 >= s_sFpsLog * 1000.0)

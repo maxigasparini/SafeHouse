@@ -18,6 +18,11 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+// Sly's forced Windows compatibility header undefines "interface" to avoid
+// game-identifier collisions; DXGI's COM declarations still require it.
+#ifndef interface
+#define interface struct
+#endif
 #include <d3d11.h>
 #include <dxgi1_5.h>
 
