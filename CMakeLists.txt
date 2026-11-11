@@ -349,6 +349,12 @@ if(WIN32)
    target_sources(${target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/platform/win32/gl_present_dxgi.cpp")
   endif()
  endforeach()
+ # Only this Windows DXGI file needs COM headers while the forced Sly
+ # compatibility header still has the SDK's original interface macros.
+ if(MSVC AND (TARGET Sly2-Release OR TARGET Sly3-Release))
+  set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/platform/win32/gl_present_dxgi.cpp"
+   PROPERTIES COMPILE_DEFINITIONS CANE_DXGI_COM_HEADERS)
+ endif()
  foreach(target Sly2-Release Sly3-Release)
   if(TARGET ${target})
    # platform/win32: <execinfo.h> and the POSIX calls (malloc_trim, setenv) for the Windows build only.

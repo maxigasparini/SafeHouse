@@ -6,6 +6,11 @@
 // <windows.h> first (WIN32_LEAN_AND_MEAN, NOMINMAX from CMake), then drop its macros that collide with names in the
 // game sources (local variables "near" / "far", CHud::DrawText, ...). Later includes of <windows.h> are no-ops.
 #include <windows.h>
+// The DXGI source also needs the COM interfaces. Parse them before removing
+// the SDK macros that collide with the Sly game source identifiers.
+#if defined(CANE_DXGI_COM_HEADERS)
+#include <objbase.h>
+#endif
 #undef near
 #undef far
 #undef DrawText

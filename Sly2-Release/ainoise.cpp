@@ -27,6 +27,9 @@
 #include <cstdlib>
 #include <cmath>
 #include <cstring>
+#ifdef _MSC_VER
+#include <intrin.h>
+#endif
 #include <memory>
 #include <unordered_map>
 #include <unordered_set>
@@ -188,10 +191,16 @@ NOISETMPL* PtmplNoiseFixed(int i)
 NOISE* PnoiseNew(NOISETMPL* ptmpl, const glm::vec3& pos, LO* ploOwner)
 {
     if (!ptmpl) return nullptr;
-    if (std::getenv("SLY2N_NOISEDEBUG"))
+    if (std::getenv("SLY2N_NOISEDEBUG")) {
+#ifdef _MSC_VER
+        void* caller = _ReturnAddress();
+#else
+        void* caller = __builtin_return_address(0);
+#endif
         std::fprintf(stderr, "noise new: t %.3f type %d tmpl %d r %.0f at (%.0f %.0f %.0f) owner %d from %p\n", g_clock.t, ptmpl->nType,
                      ptmpl->plo ? ptmpl->plo->oid : -1, ptmpl->sRadius, pos.x, pos.y, pos.z, ploOwner ? ploOwner->oid : -1,
-                     __builtin_return_address(0));
+                     caller);
+    }
     // orig 0x11CCC0: a slot of the pool (SW +0x4008); native: the oldest released before this frame, else a new one
     NOISE* p = nullptr;
     if (auto& af = ApnoiseFree(); !af.empty() && af.front()->tFree < g_clock.t)
