@@ -108,7 +108,7 @@ private:
     // Compares on the native string: path::string() throws on Windows for
     // names that the ANSI code page cannot represent.
     static bool hidden(const std::filesystem::path& entry) {
-        const auto& name = entry.filename().native();
+        const auto name = entry.filename().native();
         return name.empty() || name.front() == '.';
     }
     void visit(const std::filesystem::path& folder, int depth, std::vector<IsoCandidate>& found, size_t& entries) {
